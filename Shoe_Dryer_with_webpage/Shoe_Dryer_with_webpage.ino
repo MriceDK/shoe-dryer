@@ -241,6 +241,7 @@ void setup() {
       <body>
 
       <h1>Shoe Dryer webinterface</h1>
+        <!--Version 1.0 - 15/03/2025 15:35 -->
         <h2>Fan Settings</h2>
         <form>
           <label for="fan-timer">Set fan timer (Minutes) : </label>
