@@ -6,18 +6,15 @@
 const char* ssid = "wlmlvin";
 const char* password = "mlvin@8730";
 
-#define DHTPIN1 25
-#define DHTPIN2 26
-#define DHTPIN3 33
 #define DHTTYPE DHT22
 #define FANPIN1 18
 #define FANPIN2 19
 #define BUTTON_PIN 27
 #define BUTTON_LIGHT_PIN 23
 
-DHT dht1(DHTPIN1, DHTTYPE);
-DHT dht2(DHTPIN2, DHTTYPE);
-DHT dht3(DHTPIN3, DHTTYPE);
+DHT dht1(25, DHTTYPE);
+DHT dht2(26, DHTTYPE);
+DHT dht3(33, DHTTYPE);
 
 int buttonState = LOW;
 int lastButtonState = LOW;
@@ -29,6 +26,7 @@ float humidity1 = 0;
 float humidity2 = 0;
 float humidity3 = 0;
 String fanState = "off";
+float humidityThreshold = 0; // Global variable to store the threshold
 AsyncWebServer server(80);
 
 void setup() {
@@ -259,13 +257,13 @@ void setup() {
         <p id="current-humidity-threshold-text">Current humidity difference required <span id="current-humidity-threshold">0%</span></p>
         <div id="humidity-meters">
           <div class="humidity-box">
-            <p>Left : <span id="humidity-left">50%</span></p>
+            <p>Left : <span id="humidity-left">- %</span></p>
           </div>
           <div class="humidity-box">
-            <p>Control : <span id="humidity-control">40%</span></p>
+            <p>Control : <span id="humidity-control">- %</span></p>
           </div>
           <div class="humidity-box">
-            <p>Right : <span id="humidity-right">50%</span></p>
+            <p>Right : <span id="humidity-right">- %</span></p>
           </div>
         </div>
 
@@ -321,8 +319,8 @@ void setup() {
               .then(response => response.json())
               .then(data => {
                 document.getElementById('humidity-left').textContent = data.humidity1 + "%";
-                document.getElementById('humidity-control').textContent = data.humidity2 + "%";
-                document.getElementById('humidity-right').textContent = data.humidity3 + "%";
+                document.getElementById('humidity-control').textContent = data.humidity3 + "%";
+                document.getElementById('humidity-right').textContent = data.humidity2 + "%";
                 document.getElementById('fan-status').textContent = data.fanState;
               });
           }
@@ -369,7 +367,6 @@ void setup() {
     request->send(200, "application/json", json);
   });
 
-  float humidityThreshold = 0; // Global variable to store the threshold
 
   server.on("/setThreshold", HTTP_GET, [&](AsyncWebServerRequest* request) {
     if (request->hasParam("threshold")) {
@@ -418,11 +415,11 @@ void loop() {
 
   // If fanTimer is greater than 0, check if it's time to turn off the fans
   if (fanTimer > 0 && fansRunning && millis() - prevMillis > fanTimer) {
-    if (humidity1 <= humidity3) {
+    if (humidity1 <= humidity3 + humidityThreshold) {
       digitalWrite(FANPIN1, LOW);
       Serial.println("Fan 1 turned OFF due to humidity condition");
     }
-    if (humidity2 <= humidity3) {
+    if (humidity2 <= humidity3 + humidityThreshold) {
       digitalWrite(FANPIN2, LOW);
       Serial.println("Fan 2 turned OFF due to humidity condition");
     }
@@ -436,7 +433,10 @@ void loop() {
   }
 
   // Handle case when fanTimer is 0 (indefinite run)
-  if (fanTimer == 0 && fansRunning) {
+  if (fanTimer == 0 && !fansRunning) {
     // Fans will run indefinitely until manually turned off
+    digitalWrite(FANPIN1, HIGH);
+    digitalWrite(FANPIN2, HIGH);
+    Serial.println("Both fans turned ON indefinitely");
   }
 }
