@@ -496,9 +496,9 @@ void loop() {
     // Fans will run indefinitely until manually turned off
     digitalWrite(FANPIN1, HIGH);
     digitalWrite(FANPIN2, HIGH);
-    fansRunning = true; // Add this
-    fanStateLeft = "on"; // Add this
-    fanStateRight = "on"; // Add this
-    digitalWrite(BUTTON_LIGHT_PIN, HIGH); // Add this
+    fansRunning = true;
+    fanStateLeft = "on";
+    fanStateRight = "on"; 
+    digitalWrite(BUTTON_LIGHT_PIN, HIGH);
     }
 }
