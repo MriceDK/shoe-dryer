@@ -1,6 +1,7 @@
 #include <DHT.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>  // Must be version 6.x
 
 // WiFi credentials
 const char* ssid = "wlmlvin";
@@ -30,6 +31,9 @@ String fanStateRight = "off";
 float humidityThreshold = 0; // Global variable to store the threshold
 bool isProcessing = false;
 AsyncWebServer server(80);
+
+void toggleFans(int buttonStateCurr);
+float roundToDecimalPlaces(float value, int places);
 
 void setup() {
   Serial.begin(9600);
@@ -241,7 +245,7 @@ void setup() {
       <body>
 
       <h1>Shoe Dryer webinterface</h1>
-        <!--Version 1.1 - 15/03/2025 15:35 -->
+        <!--Version 1.1 - 08/04/2025 15:35 -->
         <h2>Fan Settings</h2>
         <form>
           <label for="fan-timer">Set fan timer (Minutes) : </label>
@@ -323,9 +327,9 @@ void setup() {
             fetch('/data')
               .then(response => response.json())
               .then(data => {
-                document.getElementById('humidity-left').textContent = data.humidity1 + "%";
-                document.getElementById('humidity-control').textContent = data.humidity3 + "%";
-                document.getElementById('humidity-right').textContent = data.humidity2 + "%";
+                document.getElementById('humidity-left').textContent = data.humidity1.toFixed(1) + "%";
+                document.getElementById('humidity-control').textContent = data.humidity3.toFixed(1) + "%";
+                document.getElementById('humidity-right').textContent = data.humidity2.toFixed(1) + "%";
                 document.getElementById('fan-status-left').textContent = data.fanStateLeft;
                 document.getElementById('fan-status-right').textContent = data.fanStateRight;
               });
@@ -402,9 +406,9 @@ void setup() {
     isProcessing = true;
 
     StaticJsonDocument<300> doc;
-    doc["humidity1"] = isnan(humidity1) ? -1 : humidity1; // Handle NaN values
-    doc["humidity2"] = isnan(humidity2) ? -1 : humidity2;
-    doc["humidity3"] = isnan(humidity3) ? -1 : humidity3;
+    doc["humidity1"] = isnan(humidity1) ? -1 : roundToDecimalPlaces(humidity1, 1);  // Handle NaN values
+    doc["humidity2"] = isnan(humidity2) ? -1 : roundToDecimalPlaces(humidity2, 1); 
+    doc["humidity3"] = isnan(humidity3) ? -1 : roundToDecimalPlaces(humidity3, 1); 
     doc["fanStateLeft"] = fanStateLeft;
     doc["fanStateRight"] = fanStateRight;
     String json;
@@ -413,7 +417,6 @@ void setup() {
     isProcessing = false;
 
   });
-
 
   server.on("/setThreshold", HTTP_GET, [&](AsyncWebServerRequest* request) {
     if (isProcessing) {
@@ -438,11 +441,24 @@ void setup() {
 void loop() {
   delay(25); // this speeds up the simulation
   buttonState = digitalRead(BUTTON_PIN);
-  
+
+  readHumidity();
+  toggleFans(buttonState);
+  handleTurningOffFansWhenNeeded();
+}
+
+void readHumidity() {
+  humidity1 = roundToDecimalPlaces(dht1.readHumidity(), 1);
+  humidity2 = roundToDecimalPlaces(dht2.readHumidity(), 1);
+  humidity3 = roundToDecimalPlaces(dht3.readHumidity(), 1);
+}
+
+
+void toggleFans(int buttonStateCurr) {
   // Handle button press logic (toggle fans)
-  if (buttonState != lastButtonState && millis() - debounceStartTime > 25) {
+  if (buttonStateCurr != lastButtonState && millis() - debounceStartTime > 200) {
     debounceStartTime = millis(); // Reset debounce timer
-    if (buttonState == LOW && (fanStateLeft == "on" || fanStateRight == "on")) {
+    if (buttonStateCurr == LOW && (fanStateLeft == "on" || fanStateRight == "on")) {
       digitalWrite(FANPIN1, LOW);  // Turn fans off
       digitalWrite(FANPIN2, LOW);  
       digitalWrite(BUTTON_LIGHT_PIN, LOW);
@@ -450,7 +466,7 @@ void loop() {
       fanStateLeft = "off";
       fanStateRight = "off";
       Serial.println("Fans turned OFF via button");
-    } else if (buttonState == LOW && (fanStateLeft == "off" && fanStateRight == "off")) {
+    } else if (buttonStateCurr == LOW && (fanStateLeft == "off" && fanStateRight == "off")) {
       digitalWrite(FANPIN1, HIGH); // Turn fans on
       digitalWrite(FANPIN2, HIGH);  
       digitalWrite(BUTTON_LIGHT_PIN, HIGH);
@@ -461,15 +477,11 @@ void loop() {
       prevMillis = millis(); // Reset timer start
     }
   }
-  lastButtonState = buttonState;
+  lastButtonState = buttonStateCurr;
+}
 
-  // Read humidity sensors
-  humidity1 = isnan(dht1.readHumidity()) ? -1 : dht1.readHumidity();
-  humidity2 = isnan(dht2.readHumidity()) ? -1 : dht2.readHumidity();
-  humidity3 = isnan(dht3.readHumidity()) ? -1 : dht3.readHumidity();
-
-
-  // If fanTimer is greater than 0, check if it's time to turn off the fans
+void handleTurningOffFansWhenNeeded() {
+    // If fanTimer is greater than 0, check if it's time to turn off the fans
   if (fanTimer > 0 && fansRunning && millis() - prevMillis > fanTimer) {
     if (!isnan(humidity1) && humidity1 <= humidity3 + humidityThreshold && fanStateLeft == "on") {
       digitalWrite(FANPIN1, LOW);
@@ -502,3 +514,10 @@ void loop() {
     digitalWrite(BUTTON_LIGHT_PIN, HIGH);
     }
 }
+
+float roundToDecimalPlaces(float value, int places) {
+    if (isnan(value)) return -1.0; // Return -1.0 for NaN
+  float multiplier = pow(10.0, places);
+  return round(value * multiplier) / multiplier;
+}
+
