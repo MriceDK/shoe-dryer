@@ -25,7 +25,8 @@ bool fansRunning = false;
 float humidity1 = 0;
 float humidity2 = 0;
 float humidity3 = 0;
-String fanState = "off";
+String fanStateLeft = "off";
+String fanStateRight = "off";
 float humidityThreshold = 0; // Global variable to store the threshold
 AsyncWebServer server(80);
 
@@ -239,7 +240,7 @@ void setup() {
       <body>
 
       <h1>Shoe Dryer webinterface</h1>
-        <!--Version 1.0 - 15/03/2025 15:35 -->
+        <!--Version 1.1 - 15/03/2025 15:35 -->
         <h2>Fan Settings</h2>
         <form>
           <label for="fan-timer">Set fan timer (Minutes) : </label>
@@ -270,7 +271,9 @@ void setup() {
 
         <h2>Fan Control</h2>
         <div id="fan-control-container">
-          <p>Fan status : <span id="fan-status">off</span></p>
+          <p>Fan status LEFT : <span id="fan-status-left">off</span></p>
+          <p>Fan status RIGHT : <span id="fan-status-right">off</span></p>
+
           <button id="toggle-fans">Toggle Fans</button>
         </div>
       <footer>
@@ -310,7 +313,8 @@ void setup() {
             fetch('/toggle')
               .then(response => response.json())
               .then(data => {
-                document.getElementById('fan-status').textContent = data.fanState;
+                document.getElementById('fan-status-left').textContent = data.fanStateLeft;
+                document.getElementById('fan-status-right').textContent = data.fanStateRight;
               });
           }
 
@@ -321,7 +325,8 @@ void setup() {
                 document.getElementById('humidity-left').textContent = data.humidity1 + "%";
                 document.getElementById('humidity-control').textContent = data.humidity3 + "%";
                 document.getElementById('humidity-right').textContent = data.humidity2 + "%";
-                document.getElementById('fan-status').textContent = data.fanState;
+                document.getElementById('fan-status-left').textContent = data.fanStateLeft;
+                document.getElementById('fan-status-right').textContent = data.fanStateRight;
               });
           }
 
@@ -347,13 +352,15 @@ void setup() {
     digitalWrite(FANPIN1, fansRunning ? HIGH : LOW);
     digitalWrite(FANPIN2, fansRunning ? HIGH : LOW);
     digitalWrite(BUTTON_LIGHT_PIN, fansRunning ? HIGH : LOW);
-    fanState = fansRunning ? "on" : "off";
-    String json = "{\"fanState\":\"" + fanState + "\"}";
+    fanStateLeft = fansRunning ? "on" : "off";
+    fanStateRight = fansRunning ? "on" : "off";
+
+    String json = "{\"fanStateLeft\":\"" + fanStateLeft + "\",\"fanStateRight\":\"" + fanStateRight + "\"}";
     request->send(200, "application/json", json);
   });
 
   server.on("/status", HTTP_GET, [](AsyncWebServerRequest* request) {
-    String json = "{\"fanState\":\"" + fanState + "\"}";
+    String json = "{\"fanStateLeft\":\"" + fanStateLeft + "\",\"fanStateRight\":\"" + fanStateRight + "\"}";
     request->send(200, "application/json", json);
   });
 
@@ -362,7 +369,8 @@ void setup() {
     json += "\"humidity1\":" + String(humidity1) + ",";
     json += "\"humidity2\":" + String(humidity2) + ",";
     json += "\"humidity3\":" + String(humidity3) + ",";
-    json += "\"fanState\":\"" + fanState + "\"";
+    json += "\"fanStateLeft\":\"" + fanStateLeft + "\",";
+    json += "\"fanStateRight\":\"" + fanStateRight + "\"";
     json += "}";
     request->send(200, "application/json", json);
   });
@@ -389,19 +397,21 @@ void loop() {
   // Handle button press logic (toggle fans)
   if (buttonState != lastButtonState && millis() - debounceStartTime > 25) {
     debounceStartTime = millis(); // Reset debounce timer
-    if (buttonState == LOW && fansRunning == true) {
+    if (buttonState == LOW && (fanStateLeft == "on" || fanStateRight == "on")) {
       digitalWrite(FANPIN1, LOW);  // Turn fans off
       digitalWrite(FANPIN2, LOW);  
       digitalWrite(BUTTON_LIGHT_PIN, LOW);
       fansRunning = false;
-      fanState = "off";
+      fanStateLeft = "off";
+      fanStateRight = "off";
       Serial.println("Fans turned OFF via button");
-    } else if (buttonState == LOW && fansRunning == false) {
+    } else if (buttonState == LOW && (fanStateLeft == "off" && fanStateRight == "off")) {
       digitalWrite(FANPIN1, HIGH); // Turn fans on
       digitalWrite(FANPIN2, HIGH);  
       digitalWrite(BUTTON_LIGHT_PIN, HIGH);
       fansRunning = true;
-      fanState = "on";
+      fanStateLeft = "on";
+      fanStateRight = "on";
       Serial.println("Fans turned ON via button");
       prevMillis = millis(); // Reset timer start
     }
@@ -415,19 +425,22 @@ void loop() {
 
   // If fanTimer is greater than 0, check if it's time to turn off the fans
   if (fanTimer > 0 && fansRunning && millis() - prevMillis > fanTimer) {
-    if (humidity1 <= humidity3 + humidityThreshold) {
+    if (humidity1 <= humidity3 + humidityThreshold && fanStateLeft == "on") {
       digitalWrite(FANPIN1, LOW);
+      fanStateLeft = "off";
       Serial.println("Fan 1 turned OFF due to humidity condition");
     }
-    if (humidity2 <= humidity3 + humidityThreshold) {
+    if (humidity2 <= humidity3 + humidityThreshold && fanStateRight == "on") {
       digitalWrite(FANPIN2, LOW);
+      fanStateRight = "off";
       Serial.println("Fan 2 turned OFF due to humidity condition");
     }
     // If both fans are off, stop the timer
     if (digitalRead(FANPIN1) == LOW && digitalRead(FANPIN2) == LOW) {
       fansRunning = false;
       digitalWrite(BUTTON_LIGHT_PIN, LOW);
-      fanState = "off";
+      fanStateLeft = "off";
+      fanStateRight = "off";
       Serial.println("Both fans turned OFF");
     }
   }
