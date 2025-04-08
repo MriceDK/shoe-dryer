@@ -28,6 +28,7 @@ float humidity3 = 0;
 String fanStateLeft = "off";
 String fanStateRight = "off";
 float humidityThreshold = 0; // Global variable to store the threshold
+bool isProcessing = false;
 AsyncWebServer server(80);
 
 void setup() {
@@ -341,42 +342,85 @@ void setup() {
   server.on("/setTimer", HTTP_GET, [](AsyncWebServerRequest* request) {
     if (request->hasParam("timer")) {
       String timerValue = request->getParam("timer")->value();
-      fanTimer = timerValue.toInt() * 60000 * 60;
-      // * 60 for minutes
+      fanTimer = timerValue.toInt() * 60000;
     }
     request->redirect("/");
   });
 
   server.on("/toggle", HTTP_GET, [](AsyncWebServerRequest* request) {
+    if (isProcessing) {
+      request->send(429, "text/plain", "Too many requests");
+      return;
+    }
+    isProcessing = true;
+
     fansRunning = !fansRunning;
     digitalWrite(FANPIN1, fansRunning ? HIGH : LOW);
     digitalWrite(FANPIN2, fansRunning ? HIGH : LOW);
     digitalWrite(BUTTON_LIGHT_PIN, fansRunning ? HIGH : LOW);
     fanStateLeft = fansRunning ? "on" : "off";
     fanStateRight = fansRunning ? "on" : "off";
-
-    String json = "{\"fanStateLeft\":\"" + fanStateLeft + "\",\"fanStateRight\":\"" + fanStateRight + "\"}";
+    if (fanStateLeft != "on" && fanStateLeft != "off") {
+      fanStateLeft = "error";
+    }
+    if (fanStateRight != "on" && fanStateRight != "off") {
+      fanStateRight = "error";
+    }
+    if (fansRunning) {
+      prevMillis = millis(); // <-- ADD THIS LINE
+    }
+    StaticJsonDocument<200> doc;
+    doc["fanStateLeft"] = fanStateLeft;
+    doc["fanStateRight"] = fanStateRight;
+    String json;
+    serializeJson(doc, json);
     request->send(200, "application/json", json);
+    isProcessing = false;
   });
 
   server.on("/status", HTTP_GET, [](AsyncWebServerRequest* request) {
-    String json = "{\"fanStateLeft\":\"" + fanStateLeft + "\",\"fanStateRight\":\"" + fanStateRight + "\"}";
+    if (isProcessing) {
+      request->send(429, "text/plain", "Too many requests");
+      return;
+    }
+    isProcessing = true;
+
+    StaticJsonDocument<200> doc;
+    doc["fanStateLeft"] = fanStateLeft;
+    doc["fanStateRight"] = fanStateRight;
+    String json;
+    serializeJson(doc, json);
     request->send(200, "application/json", json);
+    isProcessing = false;
   });
 
   server.on("/data", HTTP_GET, [](AsyncWebServerRequest* request) {
-    String json = "{";
-    json += "\"humidity1\":" + String(humidity1) + ",";
-    json += "\"humidity2\":" + String(humidity2) + ",";
-    json += "\"humidity3\":" + String(humidity3) + ",";
-    json += "\"fanStateLeft\":\"" + fanStateLeft + "\",";
-    json += "\"fanStateRight\":\"" + fanStateRight + "\"";
-    json += "}";
+    if (isProcessing) {
+      request->send(429, "text/plain", "Too many requests");
+      return;
+    }
+    isProcessing = true;
+
+    StaticJsonDocument<300> doc;
+    doc["humidity1"] = isnan(humidity1) ? -1 : humidity1; // Handle NaN values
+    doc["humidity2"] = isnan(humidity2) ? -1 : humidity2;
+    doc["humidity3"] = isnan(humidity3) ? -1 : humidity3;
+    doc["fanStateLeft"] = fanStateLeft;
+    doc["fanStateRight"] = fanStateRight;
+    String json;
+    serializeJson(doc, json);
     request->send(200, "application/json", json);
+    isProcessing = false;
+
   });
 
 
   server.on("/setThreshold", HTTP_GET, [&](AsyncWebServerRequest* request) {
+    if (isProcessing) {
+      request->send(429, "text/plain", "Too many requests");
+      return;
+    }
+    isProcessing = true; 
     if (request->hasParam("threshold")) {
       String thresholdValue = request->getParam("threshold")->value();
       humidityThreshold = thresholdValue.toFloat(); // Store the threshold value
@@ -385,6 +429,7 @@ void setup() {
     } else {
       request->send(400, "text/plain", "Difference parameter missing");
     }
+    isProcessing = false;
   });
 
   server.begin();
@@ -419,18 +464,19 @@ void loop() {
   lastButtonState = buttonState;
 
   // Read humidity sensors
-  humidity1 = dht1.readHumidity();
-  humidity2 = dht2.readHumidity();
-  humidity3 = dht3.readHumidity();
+  humidity1 = isnan(dht1.readHumidity()) ? -1 : dht1.readHumidity();
+  humidity2 = isnan(dht2.readHumidity()) ? -1 : dht2.readHumidity();
+  humidity3 = isnan(dht3.readHumidity()) ? -1 : dht3.readHumidity();
+
 
   // If fanTimer is greater than 0, check if it's time to turn off the fans
   if (fanTimer > 0 && fansRunning && millis() - prevMillis > fanTimer) {
-    if (humidity1 <= humidity3 + humidityThreshold && fanStateLeft == "on") {
+    if (!isnan(humidity1) && humidity1 <= humidity3 + humidityThreshold && fanStateLeft == "on") {
       digitalWrite(FANPIN1, LOW);
       fanStateLeft = "off";
       Serial.println("Fan 1 turned OFF due to humidity condition");
     }
-    if (humidity2 <= humidity3 + humidityThreshold && fanStateRight == "on") {
+    if (!isnan(humidity2) && humidity2 <= humidity3 + humidityThreshold && fanStateRight == "on") {
       digitalWrite(FANPIN2, LOW);
       fanStateRight = "off";
       Serial.println("Fan 2 turned OFF due to humidity condition");
@@ -450,6 +496,9 @@ void loop() {
     // Fans will run indefinitely until manually turned off
     digitalWrite(FANPIN1, HIGH);
     digitalWrite(FANPIN2, HIGH);
-    Serial.println("Both fans turned ON indefinitely");
-  }
+    fansRunning = true; // Add this
+    fanStateLeft = "on"; // Add this
+    fanStateRight = "on"; // Add this
+    digitalWrite(BUTTON_LIGHT_PIN, HIGH); // Add this
+    }
 }
